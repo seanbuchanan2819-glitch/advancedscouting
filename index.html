@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Scouting Report</title>
+  <style>* { margin: 0; padding: 0; box-sizing: border-box; } html, body, #root { height: 100%; width: 100%; }</style>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    const { useState, useMemo } = React;
+    fetch('scouting_report.jsx')
+      .then(r => r.text())
+      .then(code => {
+        code = code.replace(/^import\s.*from\s.*;\s*$/m, '');
+        code = code.replace('export default function App', 'function App');
+        code += '\nReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));';
+        const transformed = Babel.transform(code, { presets: ["react"] }).code;
+        eval(transformed);
+      });
+  </script>
+</body>
+</html>
