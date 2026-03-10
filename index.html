@@ -12,11 +12,11 @@
 <body>
     <div id="root"></div>
     <script>
-        const { useState, useMemo, useEffect, useCallback } = React;
+        var { useState, useMemo, useEffect, useCallback } = React;
         fetch('scouting_report.jsx')
             .then(r => r.text())
             .then(code => {
-                code = code.replace(/^import\s.*from\s.*;\s*$/m, '');
+                code = code.replace(/^import\s.*from\s.*;\s*$/gm, '');
                 code = code.replace('export default function App', 'function App');
                 code += '\nReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));';
                 const transformed = Babel.transform(code, { presets: ["react"] }).code;
