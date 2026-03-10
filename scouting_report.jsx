@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 
-/* âââââââââ Constants âââââââââ */
+/* ───────── Constants ───────── */
 const STATS_API = "https://statsapi.mlb.com/api/v1";
 const SAVANT_CSV = "https://baseballsavant.mlb.com/statcast_search/csv";
 const AAA_SPORT_ID = 11;
@@ -21,9 +21,9 @@ const PITCH_LABELS = {
 
 const FB_TYPES = new Set(["FF", "SI", "FC"]);
 
-/* âââââââââ Utility âââââââââ */
-const pct = (v) => v != null ? (v * 100).toFixed(1) + "%" : "â";
-const dec3 = (v) => v != null ? v.toFixed(3) : "â";
+/* ───────── Utility ───────── */
+const pct = (v) => v != null ? (v * 100).toFixed(1) + "%" : "—";
+const dec3 = (v) => v != null ? v.toFixed(3) : "—";
 
 function getGradeColor(val, metric) {
   if (val == null) return "#1a1a2e";
@@ -47,7 +47,7 @@ function getGradeColor(val, metric) {
   return "#2a2a1a";
 }
 
-/* âââââââââ CSV Parser âââââââââ */
+/* ───────── CSV Parser ───────── */
 function parseCSV(csv) {
   const lines = csv.trim().split("\n");
   if (lines.length < 2) return [];
@@ -78,7 +78,7 @@ function parseCSV(csv) {
   return rows;
 }
 
-/* âââââââââ Statcast Helpers âââââââââ */
+/* ───────── Statcast Helpers ───────── */
 function isInZone(p) {
   const z = parseInt(p.zone);
   return z >= 1 && z <= 9;
@@ -170,7 +170,7 @@ function buildMatchupData(pitchRows, pitcherArsenal) {
   return hitters;
 }
 
-/* âââââââââ API Functions âââââââââ */
+/* ───────── API Functions ───────── */
 async function fetchAAATeams(season) {
   const resp = await fetch(`${STATS_API}/teams?sportId=${AAA_SPORT_ID}&season=${season}`);
   const data = await resp.json();
@@ -182,12 +182,21 @@ async function fetchAAATeams(season) {
 }
 
 async function fetchRoster(teamId, season) {
-  let resp = await fetch(`${STATS_API}/teams/${teamId}/roster?rosterType=fullSeason&season=${season}`);
-  if (!resp.ok) {
-    resp = await fetch(`${STATS_API}/teams/${teamId}/roster?rosterType=active&season=${season}`);
+  // Try fullSeason first, then active, then previous season
+  const rosterTypes = [
+    { type: "fullSeason", yr: season },
+    { type: "active", yr: season },
+    { type: "fullSeason", yr: season - 1 },
+  ];
+  let data = { roster: [] };
+  for (const { type, yr } of rosterTypes) {
+    const resp = await fetch(`${STATS_API}/teams/${teamId}/roster?rosterType=${type}&season=${yr}`);
+    if (resp.ok) {
+      const d = await resp.json();
+      if ((d.roster || []).length > 0) { data = d; break; }
+    }
   }
-  if (!resp.ok) return { pitchers: [], hitters: [] };
-  const data = await resp.json();
+  if ((data.roster || []).length === 0) return { pitchers: [], hitters: [] };
   const roster = (data.roster || []).map(e => ({
     id: e.person.id, name: e.person.fullName,
     pos: e.position.abbreviation, posType: e.position.type,
@@ -223,7 +232,7 @@ async function fetchPitcherStatcast(pitcherId, season) {
   return parseCSV(text);
 }
 
-/* âââââââââ UI Components âââââââââ */
+/* ───────── UI Components ───────── */
 function PitchBadge({ pitch }) {
   const color = PITCH_COLORS[pitch] || "#888";
   return (
@@ -311,7 +320,7 @@ function HitterMatchupCard({ hitter, pitcherArsenal }) {
           <span key={w} style={{
             background: "#3d1a00", color: "#ff9944", fontSize: "0.6rem",
             borderRadius: 2, padding: "1px 5px", border: "1px solid #663300",
-          }}>â  {w}</span>
+          }}>⚠ {w}</span>
         ))}
       </div>
 
@@ -359,8 +368,8 @@ function HitterMatchupCard({ hitter, pitcherArsenal }) {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {[
                     { label: "Ctct%", val: pct(allAgg.contact), raw: allAgg.contact, metric: "ctct" },
-                    { label: "AvgEV", val: allAgg.avg_ev != null ? allAgg.avg_ev.toFixed(1) : "â" },
-                    { label: "MaxEV", val: allAgg.max_ev != null ? allAgg.max_ev.toFixed(1) : "â" },
+                    { label: "AvgEV", val: allAgg.avg_ev != null ? allAgg.avg_ev.toFixed(1) : "—" },
+                    { label: "MaxEV", val: allAgg.max_ev != null ? allAgg.max_ev.toFixed(1) : "—" },
                   ].map(g => (
                     <div key={g.label} style={{ textAlign: "center" }}>
                       <div style={{ color: "#666", fontSize: "0.55rem" }}>{g.label}</div>
@@ -406,7 +415,7 @@ function HitterMatchupCard({ hitter, pitcherArsenal }) {
   );
 }
 
-/* âââââââââ Main App âââââââââ */
+/* ───────── Main App ───────── */
 export default function App() {
   const currentYear = new Date().getFullYear();
   const season = currentYear;
@@ -695,14 +704,14 @@ export default function App() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <div style={{ color: "#888", fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: 2 }}>
-                {selectedTeam ? selectedTeam.name.toUpperCase() : "SELECT A TEAM"} â¢ ADVANCE SCOUTING
+                {selectedTeam ? selectedTeam.name.toUpperCase() : "SELECT A TEAM"} • ADVANCE SCOUTING
               </div>
               <div style={{ fontFamily: "'Bebas Neue', 'Impact', sans-serif", fontSize: "1.6rem", color: "#fff", letterSpacing: 2 }}>
                 {selectedPitcher ? `${selectedPitcher.name} - ${selectedPitcher.throws || "?"}HP` : "Select a Pitcher"}
               </div>
               {pitcherArsenal.length > 0 && (
                 <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                  <span style={{ color: "#888", fontSize: "0.7rem" }}>Throws: {pitcherInfo?.throws || "?"} â¢</span>
+                  <span style={{ color: "#888", fontSize: "0.7rem" }}>Throws: {pitcherInfo?.throws || "?"} •</span>
                   <span style={{ color: "#888", fontSize: "0.7rem" }}>Arsenal:</span>
                   {pitcherArsenal.map(a => <PitchBadge key={a.pitch} pitch={a.pitch} />)}
                 </div>
@@ -710,7 +719,7 @@ export default function App() {
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ color: "#e63946", fontSize: "0.65rem", fontWeight: 700, letterSpacing: 1 }}>SCOUTING REPORT</div>
-              <div style={{ color: "#555", fontSize: "0.6rem" }}>Live Statcast Data â¢ {season}</div>
+              <div style={{ color: "#555", fontSize: "0.6rem" }}>Live Statcast Data • {season}</div>
               {pitcherInfo && (
                 <div style={{ color: "#555", fontSize: "0.6rem" }}>{pitcherInfo.totalPitches} pitches tracked</div>
               )}
@@ -723,7 +732,7 @@ export default function App() {
           <LoadingSpinner message="Loading AAA teams..." />
         ) : !selectedTeamId ? (
           <div style={{ textAlign: "center", padding: 60, color: "#555" }}>
-            <div style={{ fontSize: "2rem", marginBottom: 8 }}>â¾</div>
+            <div style={{ fontSize: "2rem", marginBottom: 8 }}>⚾</div>
             <div style={{ fontSize: "1rem" }}>Select a team and pitcher to generate a scouting report</div>
             <div style={{ fontSize: "0.8rem", marginTop: 8 }}>Data sourced live from MLB Statcast for all AAA games</div>
           </div>
@@ -752,7 +761,7 @@ export default function App() {
                 {opponentTeam ? opponentTeam.name : "All Opponents"}
               </span>
               <span style={{ color: "#666", fontSize: "0.75rem", marginLeft: 8 }}>
-                {filteredHitters.length} hitters â¢ vs. {selectedPitcher?.name}
+                {filteredHitters.length} hitters • vs. {selectedPitcher?.name}
               </span>
             </div>
             {filteredHitters
