@@ -13,11 +13,19 @@ const PITCH_COLORS = {
 };
 
 const PITCH_LABELS = {
-  FF: "4-Seam", SI: "Sinker", FC: "Cutter",
-  ST: "Sweeper", SL: "Slider", CU: "Curve", KC: "Knuckle-Curve",
-  CH: "Change", FS: "Splitter", CS: "Slow Curve",
-  KN: "Knuckle", EP: "Eephus",
+  FF: "Four Seam Fastball", SI: "Two Seam Fastball", FC: "Cutter",
+  ST: "Sweeper", SL: "Slider", CU: "Curveball", KC: "Knuckle-Curve",
+  CH: "Changeup", FS: "Splitter", CS: "Slow Curve",
+  KN: "Knuckleball", EP: "Eephus",
 };
+
+const PITCH_ABBREV = {
+  FF: "FF", SI: "FT", FC: "FC",
+  ST: "SW", SL: "SL", CU: "CU", KC: "CU",
+  CH: "CH", FS: "FS", CS: "CU",
+  KN: "KN", EP: "KN", SC: "SC", FO: "FO",
+};
+
 
 const FB_TYPES = new Set(["FF", "SI", "FC"]);
 
@@ -240,7 +248,7 @@ function PitchBadge({ pitch }) {
       background: color, color: "#fff", fontSize: "0.65rem",
       fontWeight: 700, borderRadius: 3, padding: "1px 5px",
       fontFamily: "monospace", letterSpacing: 0.5,
-    }}>{pitch}</span>
+    }}>{PITCH_ABBREV[pitch] || pitch}</span>
   );
 }
 
