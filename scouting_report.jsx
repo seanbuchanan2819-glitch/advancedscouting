@@ -273,6 +273,61 @@ function LoadingSpinner({ message }) {
   );
 }
 
+function getAdvantageScore(stats) {
+  if (!stats) return -1;
+  let score = 0;
+  if (stats.whiff != null) score += stats.whiff * 40;
+  if (stats.chase != null) score += stats.chase * 30;
+  if (stats.xwoba != null) score += (1 - stats.xwoba) * 20;
+  if (stats.xavg != null) score += (1 - stats.xavg) * 10;
+  return score;
+}
+
+function generateGamePlan(pitchStats, pitcherArsenal, fbAgg, osAgg) {
+  const scored = Object.entries(pitchStats || {})
+    .filter(([, s]) => s && s.pit >= 2)
+    .map(([pt, s]) => ({ pitch: pt, score: getAdvantageScore(s), stats: s }))
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) return null;
+
+  const best = scored[0];
+  const arsenalInfo = pitcherArsenal.find(a => a.pitch === best.pitch);
+  const label = PITCH_LABELS[best.pitch] || best.pitch;
+
+  const parts = [];
+  if (best.stats.whiff != null && best.stats.whiff >= 0.25)
+    parts.push(`${(best.stats.whiff * 100).toFixed(0)}% whiff`);
+  if (best.stats.chase != null && best.stats.chase >= 0.25)
+    parts.push(`${(best.stats.chase * 100).toFixed(0)}% chase`);
+  if (best.stats.xwoba != null && best.stats.xwoba <= 0.280)
+    parts.push(`.${(best.stats.xwoba * 1000).toFixed(0)} xwOBA`);
+
+  let plan = `Attack with ${label}`;
+  if (parts.length > 0) plan += ` (${parts.join(", ")})`;
+
+  // Add secondary pitch suggestion
+  if (scored.length > 1) {
+    const second = scored[1];
+    const secLabel = PITCH_LABELS[second.pitch] || second.pitch;
+    if (FB_TYPES.has(best.pitch) && !FB_TYPES.has(second.pitch)) {
+      plan += `, tunnel with ${secLabel}`;
+    } else if (!FB_TYPES.has(best.pitch) && FB_TYPES.has(second.pitch)) {
+      plan += `, set up with ${secLabel}`;
+    } else {
+      plan += `, mix ${secLabel}`;
+    }
+  }
+
+  // Add FB/OS vulnerability note
+  if (osAgg && fbAgg && osAgg.xwoba != null && fbAgg.xwoba != null) {
+    if (osAgg.xwoba < fbAgg.xwoba - 0.08) plan += " — vulnerable to off-speed";
+    else if (fbAgg.xwoba < osAgg.xwoba - 0.08) plan += " — struggles vs. fastball";
+  }
+
+  return { text: plan, bestPitch: best.pitch, bestScore: best.score };
+}
+
 function HitterMatchupCard({ hitter, pitcherArsenal }) {
   const { fbAgg, osAgg, allAgg, pitchStats, bats, name, totalPitches } = hitter;
 
@@ -289,25 +344,33 @@ function HitterMatchupCard({ hitter, pitcherArsenal }) {
     weaknesses.push("Vulnerable off-speed");
   }
 
-  // Sort pitch stats by whiff desc
+  // Sort pitch stats by advantage score (best pitch to throw first)
   const sortedPitchStats = Object.entries(pitchStats || {})
     .filter(([, s]) => s && s.pit >= 1)
-    .sort((a, b) => (b[1].whiff || 0) - (a[1].whiff || 0));
+    .map(([pt, s]) => ({ pitch: pt, stats: s, score: getAdvantageScore(s) }))
+    .sort((a, b) => b.score - a.score);
+
+  // Game plan
+  const gamePlan = generateGamePlan(pitchStats, pitcherArsenal, fbAgg, osAgg);
+
+  // Find arsenal info for velo/usage
+  const arsenalMap = {};
+  pitcherArsenal.forEach(a => { arsenalMap[a.pitch] = a; });
 
   return (
     <div style={{
       background: "#0d0d1a", border: "1px solid #2a2a4a",
-      borderRadius: 6, marginBottom: 8, overflow: "hidden",
+      borderRadius: 6, marginBottom: 10, overflow: "hidden",
     }}>
       {/* Header */}
       <div style={{
         background: "linear-gradient(90deg, #111130 0%, #1a1a3a 100%)",
-        padding: "6px 10px", display: "flex", alignItems: "center", gap: 8,
+        padding: "6px 12px", display: "flex", alignItems: "center", gap: 8,
         borderBottom: "1px solid #2a2a4a", flexWrap: "wrap",
       }}>
         <span style={{
           fontFamily: "'Bebas Neue', 'Impact', sans-serif",
-          fontSize: "1.0rem", color: "#fff", letterSpacing: 1,
+          fontSize: "1.05rem", color: "#fff", letterSpacing: 1,
         }}>{name || `Batter #${hitter.id}`}</span>
         <span style={{
           background: batsBadge, color: "#fff", fontSize: "0.6rem",
@@ -324,92 +387,112 @@ function HitterMatchupCard({ hitter, pitcherArsenal }) {
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
-        {/* Left: FB vs OS aggregate */}
-        <div style={{ padding: "6px 8px" }}>
-          {(fbAgg || osAgg) ? (
-            <>
-              <div style={{ marginBottom: 5 }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.68rem" }}>
-                  <thead>
-                    <tr style={{ background: "#1a1a2e" }}>
-                      <th style={{ color: "#888", padding: "2px 6px", textAlign: "left", border: "1px solid #333" }}>Type</th>
-                      <th style={{ color: "#888", padding: "2px 6px", textAlign: "center", border: "1px solid #333" }}>Pit</th>
-                      <th style={{ color: "#888", padding: "2px 6px", textAlign: "center", border: "1px solid #333" }}>Chase%</th>
-                      <th style={{ color: "#888", padding: "2px 6px", textAlign: "center", border: "1px solid #333" }}>Whiff%</th>
-                      <th style={{ color: "#888", padding: "2px 6px", textAlign: "center", border: "1px solid #333" }}>xwOBA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fbAgg && fbAgg.pit > 0 && (
-                      <tr>
-                        <td style={{ color: "#e63946", padding: "2px 6px", fontWeight: 700, border: "1px solid #333" }}>FB</td>
-                        <td style={{ color: "#aaa", padding: "2px 6px", textAlign: "center", border: "1px solid #333" }}>{fbAgg.pit}</td>
-                        <StatCell value={fbAgg.chase} metric="chase" />
-                        <StatCell value={fbAgg.whiff} metric="whiff" />
-                        <StatCell value={fbAgg.xwoba} metric="xwoba" />
-                      </tr>
-                    )}
-                    {osAgg && osAgg.pit > 0 && (
-                      <tr>
-                        <td style={{ color: "#457b9d", padding: "2px 6px", fontWeight: 700, border: "1px solid #333" }}>OS</td>
-                        <td style={{ color: "#aaa", padding: "2px 6px", textAlign: "center", border: "1px solid #333" }}>{osAgg.pit}</td>
-                        <StatCell value={osAgg.chase} metric="chase" />
-                        <StatCell value={osAgg.whiff} metric="whiff" />
-                        <StatCell value={osAgg.xwoba} metric="xwoba" />
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Summary stats */}
-              {allAgg && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {[
-                    { label: "Ctct%", val: pct(allAgg.contact), raw: allAgg.contact, metric: "ctct" },
-                    { label: "AvgEV", val: allAgg.avg_ev != null ? allAgg.avg_ev.toFixed(1) : "—" },
-                    { label: "MaxEV", val: allAgg.max_ev != null ? allAgg.max_ev.toFixed(1) : "—" },
-                  ].map(g => (
-                    <div key={g.label} style={{ textAlign: "center" }}>
-                      <div style={{ color: "#666", fontSize: "0.55rem" }}>{g.label}</div>
-                      <div style={{ color: "#ccc", fontSize: "0.75rem", fontFamily: "monospace" }}>{g.val}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ color: "#555", fontSize: "0.7rem", padding: 4 }}>Insufficient data</div>
-          )}
+      {/* Game Plan */}
+      {gamePlan && (
+        <div style={{
+          background: "linear-gradient(90deg, #0a1a0a 0%, #0d1a0d 100%)",
+          padding: "5px 12px", borderBottom: "1px solid #1a3a1a",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{
+            color: "#2a9d8f", fontSize: "0.6rem", fontWeight: 800,
+            textTransform: "uppercase", letterSpacing: 1, flexShrink: 0,
+          }}>GAME PLAN</span>
+          <PitchBadge pitch={gamePlan.bestPitch} />
+          <span style={{
+            color: "#88cc88", fontSize: "0.72rem", fontFamily: "system-ui",
+          }}>{gamePlan.text}</span>
         </div>
+      )}
 
-        {/* Right: Per-pitch matchup */}
-        <div style={{ padding: "6px 8px", borderLeft: "1px solid #1a1a3a" }}>
-          {sortedPitchStats.length > 0 && (
-            <div>
-              <div style={{ color: "#666", fontSize: "0.58rem", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>vs. Pitcher Arsenal</div>
-              {sortedPitchStats.map(([pitch, stats]) => (
-                <div key={pitch} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-                  <PitchBadge pitch={pitch} />
-                  <span style={{ color: "#666", fontSize: "0.58rem" }}>{stats.pit}p</span>
-                  <span style={{ color: "#aaa", fontSize: "0.62rem", fontFamily: "monospace" }}>
-                    Whiff {pct(stats.whiff)}
-                  </span>
-                  <span style={{ color: "#888", fontSize: "0.6rem", fontFamily: "monospace" }}>
-                    Chase {pct(stats.chase)}
-                  </span>
-                  <span style={{
-                    color: stats.xavg != null && stats.xavg < 0.2 ? "#44aa44" : "#cc6644",
-                    fontSize: "0.6rem", fontFamily: "monospace",
-                  }}>
-                    xAVG {dec3(stats.xavg)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Main: Pitch-by-Pitch Matchup Table */}
+      <div style={{ padding: "8px 12px" }}>
+        {sortedPitchStats.length > 0 ? (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.72rem" }}>
+            <thead>
+              <tr style={{ background: "#12122a" }}>
+                <th style={{ color: "#888", padding: "4px 8px", textAlign: "left", border: "1px solid #2a2a4a", fontSize: "0.62rem", textTransform: "uppercase", letterSpacing: 0.5 }}>Pitch</th>
+                <th style={{ color: "#888", padding: "4px 6px", textAlign: "center", border: "1px solid #2a2a4a", fontSize: "0.62rem" }}>Velo</th>
+                <th style={{ color: "#888", padding: "4px 6px", textAlign: "center", border: "1px solid #2a2a4a", fontSize: "0.62rem" }}>Pit</th>
+                <th style={{ color: "#888", padding: "4px 6px", textAlign: "center", border: "1px solid #2a2a4a", fontSize: "0.62rem" }}>Chase%</th>
+                <th style={{ color: "#888", padding: "4px 6px", textAlign: "center", border: "1px solid #2a2a4a", fontSize: "0.62rem" }}>Whiff%</th>
+                <th style={{ color: "#888", padding: "4px 6px", textAlign: "center", border: "1px solid #2a2a4a", fontSize: "0.62rem" }}>xwOBA</th>
+                <th style={{ color: "#888", padding: "4px 6px", textAlign: "center", border: "1px solid #2a2a4a", fontSize: "0.62rem" }}>xAVG</th>
+                <th style={{ color: "#888", padding: "4px 6px", textAlign: "center", border: "1px solid #2a2a4a", fontSize: "0.62rem" }}>Ctct%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedPitchStats.map(({ pitch, stats }, idx) => {
+                const aInfo = arsenalMap[pitch];
+                const isBest = idx === 0 && sortedPitchStats.length > 1;
+                return (
+                  <tr key={pitch} style={{ background: isBest ? "#0a1a0a" : "transparent" }}>
+                    <td style={{
+                      padding: "3px 8px", border: "1px solid #2a2a4a",
+                      display: "flex", alignItems: "center", gap: 5,
+                    }}>
+                      <PitchBadge pitch={pitch} />
+                      <span style={{ color: "#aaa", fontSize: "0.65rem" }}>
+                        {PITCH_LABELS[pitch] || pitch}
+                      </span>
+                      {aInfo && (
+                        <span style={{ color: "#555", fontSize: "0.58rem" }}>
+                          {(aInfo.usage * 100).toFixed(0)}%
+                        </span>
+                      )}
+                    </td>
+                    <td style={{
+                      color: "#aaa", textAlign: "center", padding: "3px 6px",
+                      border: "1px solid #2a2a4a", fontFamily: "monospace", fontSize: "0.68rem",
+                    }}>
+                      {aInfo?.avgVelo || "—"}
+                    </td>
+                    <td style={{
+                      color: "#aaa", textAlign: "center", padding: "3px 6px",
+                      border: "1px solid #2a2a4a", fontFamily: "monospace",
+                    }}>{stats.pit}</td>
+                    <StatCell value={stats.chase} metric="chase" />
+                    <StatCell value={stats.whiff} metric="whiff" />
+                    <StatCell value={stats.xwoba} metric="xwoba" />
+                    <StatCell value={stats.xavg} metric="xavg" />
+                    <StatCell value={stats.contact} metric="ctct" />
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div style={{ color: "#555", fontSize: "0.7rem", padding: 4 }}>Insufficient pitch data</div>
+        )}
+
+        {/* Secondary: FB/OS summary + contact quality */}
+        {allAgg && (
+          <div style={{
+            display: "flex", gap: 16, marginTop: 6, padding: "4px 0",
+            borderTop: "1px solid #1a1a2e", flexWrap: "wrap", alignItems: "center",
+          }}>
+            {fbAgg && fbAgg.pit > 0 && (
+              <span style={{ color: "#666", fontSize: "0.62rem", fontFamily: "monospace" }}>
+                <span style={{ color: "#e63946" }}>FB</span> {fbAgg.pit}p xwOBA {dec3(fbAgg.xwoba)}
+              </span>
+            )}
+            {osAgg && osAgg.pit > 0 && (
+              <span style={{ color: "#666", fontSize: "0.62rem", fontFamily: "monospace" }}>
+                <span style={{ color: "#457b9d" }}>OS</span> {osAgg.pit}p xwOBA {dec3(osAgg.xwoba)}
+              </span>
+            )}
+            <span style={{ color: "#555", fontSize: "0.58rem" }}>|</span>
+            {[
+              { label: "Ctct", val: pct(allAgg.contact) },
+              { label: "AvgEV", val: allAgg.avg_ev != null ? allAgg.avg_ev.toFixed(1) : "—" },
+              { label: "MaxEV", val: allAgg.max_ev != null ? allAgg.max_ev.toFixed(1) : "—" },
+            ].map(g => (
+              <span key={g.label} style={{ color: "#666", fontSize: "0.62rem", fontFamily: "monospace" }}>
+                {g.label} {g.val}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
